@@ -1,8 +1,10 @@
 import os
 import sys
 import time
+import queue
 import shutil
 import platform
+import threading
 
 from urllib.parse import quote
 from uuid import uuid4
@@ -11,10 +13,10 @@ python_version = sys.version_info
 sys_platform = platform.system()
 
 '''一些参数搁下面这儿配置'''
-window_media_paths = ['C:\\', 'D:\\', 'E:\\', "F:\\", "/"]
-# window_media_paths = ["D:\\"]
+find_paths = ['C:\\', 'D:\\', 'E:\\', "F:\\", "/"]
+# find_paths = ["D:\\"]
 
-thred_num = 20
+thred_num = 5
 
 # 要排除的文件夹，比如微信下的一些聊天记录文件，没啥好听的，又臭又长
 # 还有回收站的文件，之类的
@@ -24,12 +26,17 @@ exclude_paths = [
     "myblog"
 ]
 
-tmp_folder = "tmp"
+
 
 '''一些参数搁上面那儿配置'''
 
-print(sys_platform)
-print(python_version)
+tmp_folder = "audio_yiguoluandun_tmp"
+sound_queue = queue.Queue()
+find_thread_running_flag = False
+all_count = 0
+sound_count = 0
+played_sound_count = 0
+count_lock = threading.Lock()
 
 # sys.exit(0)
 
@@ -80,8 +87,6 @@ def try_fix_playsound_module():
             for file in fs:
                 full_path = os.path.join(root, file)
                 if file == "playsound.py":
-                    # print(full_path)
-                    # print("yes")
                     with open(full_path, "r") as f:
                         _code = f.read()
 
@@ -145,13 +150,18 @@ def check_and_install_require_module():
 
 
 def call_playsound(sound):
+    global played_sound_count
     if not os.path.exists(tmp_folder):
         os.mkdir(tmp_folder)
     tmp_sound_path = os.path.join(tmp_folder, "{0}{1}".format(str(uuid4()), os.path.splitext(sound)[-1]))
     shutil.copyfile(sound, tmp_sound_path)
 
-    playsound(tmp_sound_path)
+    count_lock.acquire()
+    played_sound_count += 1
+    count_lock.release()
 
+    playsound(tmp_sound_path)
+    
     os.remove(tmp_sound_path)
 
 
@@ -160,59 +170,93 @@ def del_tmp_files():
         for f in fs:
             tmp_sound_path = os.path.join(root, f)
             os.remove(tmp_sound_path)
+
+
+def find_sound_files():
+    global all_count
+    global sound_count
+    global find_thread_running_flag
+    find_thread_running_flag = True
+    for find_path in find_paths:
+        for root, ds, fs in os.walk(find_path):
+            for file in fs:
+                full_path = os.path.join(root, file)
+                count_lock.acquire()
+                all_count += 1
+                # print(full_path)
+                count_lock.release()
+                if os.path.splitext(full_path)[-1] in ['.wav', '.mp3']:
+                    skip_flag = False
+                    for exclude_path in exclude_paths:
+                        if exclude_path in full_path:
+                            # 跳过需要排除的文件夹
+                            print(full_path)
+                            print("跳过！")
+                            skip_flag = True
+                            break
+                    if tmp_folder in full_path:
+                        print(full_path)
+                        print("跳过！")
+                        skip_flag = True
+                    if skip_flag:
+                        continue
+                    count_lock.acquire()
+                    sound_count += 1
+                    # print(full_path)
+                    count_lock.release()
+                    sound_queue.put(full_path)
     
+    find_thread_running_flag = False
+                        
+
 
 if check_venv():
     check_and_install_require_module()
     try_fix_playsound_module()
     from playsound import playsound
     try:
-        import threading
-        count = 0
-        play_count = 0
-        for window_media_path in window_media_paths:
-            for root, ds, fs in os.walk(window_media_path):
-                if root == root:
-                    for file in fs:
-                        full_path = os.path.join(root, file)
-                        count += 1
-                        # print(full_path)
-                        
-                        if os.path.splitext(full_path)[-1] in ['.wav', '.mp3']:
-                            skip_flag = False
-                            for exclude_path in exclude_paths:
-                                if exclude_path in full_path:
-                                    # 跳过需要排除的文件夹
-                                    print(full_path)
-                                    print("跳过！")
-                                    skip_flag = True
-                                    break
-                            if skip_flag:
-                                continue
-                            
-                            sleep_time = 2
-                            wait_time_count = 0
-                            while True:
-                                if threading.active_count() > thred_num:
-                                    print('当前线程数：{0}，等待，已等待 {1} s...'.format(threading.active_count(), wait_time_count))
-                                    time.sleep(sleep_time)
-                                    wait_time_count += sleep_time
-                                    sleep_time *= 2
-                                    if sleep_time > 8:
-                                        sleep_time = 8
-                                else:
-                                    break
-                            # print(file)
-                            play_count += 1
-                            print('已遍历文件：{0}，已发现目标文件{1}'.format(count, play_count))
+        # 查找音频文件线程
+        _t = threading.Thread(target=find_sound_files)
+        _t.daemon = True
+        _t.start()
 
-                            print(full_path)
-                            _t = threading.Thread(target=call_playsound, args=(full_path,))
-                            _t.daemon = True
-                            _t.start()                            
-                            time.sleep(0.1)
+        while True:
+            if not sound_queue.empty():
+                full_path = sound_queue.get()
+                sleep_time = 2
+                wait_time_count = 0
+                while True:
+                    if threading.active_count() - 2 >= thred_num:
+                        print('当前线程数：{0}，等待，已等待 {1} s...'.format(threading.active_count(), wait_time_count))
+                        time.sleep(sleep_time)
+                        wait_time_count += sleep_time
+                        sleep_time *= 2
+                        if sleep_time > 8:
+                            sleep_time = 8
+                    else:
+                        break
+                
+                count_lock.acquire()
+                print('已遍历文件：{0}，已发现目标文件：{1}，队列中目标数量：{2}，已播放：{3}'.format(
+                    all_count,
+                    sound_count,
+                    sound_queue.qsize(),
+                    played_sound_count
+                ))
+                count_lock.release()
+
+                print(full_path)
+                _t = threading.Thread(target=call_playsound, args=(full_path,))
+                _t.daemon = True
+                _t.start()                            
+                time.sleep(0.1)
+            elif sound_queue.empty() and not find_thread_running_flag:
+                break
+            else:
+                time.sleep(1)
 
         for t in threading.enumerate():
+            print(t)
             if t is not threading.current_thread():
                 t.join()
 
