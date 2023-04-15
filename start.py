@@ -16,7 +16,7 @@ sys_platform = platform.system()
 find_paths = ['C:\\', 'D:\\', 'E:\\', "F:\\", "/"]
 # find_paths = ["D:\\"]
 
-thred_num = 5
+thred_num = 3
 
 # 要排除的文件夹，比如微信下的一些聊天记录文件，没啥好听的，又臭又长
 # 还有回收站的文件，之类的
@@ -227,17 +227,19 @@ if check_venv():
         while True:
             if not sound_queue.empty():
                 full_path = sound_queue.get()
-                sleep_time = 2
+                sleep_time = 1
                 wait_time_count = 0
                 while True:
-                    if threading.active_count() - 2 >= thred_num:
-                        print('当前线程数：{0}，等待，已等待 {1} s...'.format(threading.active_count(), wait_time_count))
+                    if (find_thread_running_flag and threading.active_count() - 2 >= thred_num) or (not find_thread_running_flag and threading.active_count() - 1 >= thred_num):
+                        print('\r当前线程数：{0}，等待，已等待 {1} s...'.format(threading.active_count(), wait_time_count), end="")
                         time.sleep(sleep_time)
                         wait_time_count += sleep_time
-                        sleep_time *= 2
-                        if sleep_time > 8:
-                            sleep_time = 8
+                        # sleep_time *= 2
+                        # if sleep_time > 8:
+                        #     sleep_time = 8
                     else:
+                        if wait_time_count > 0:
+                            print("")
                         break
                 
                 count_lock.acquire()
