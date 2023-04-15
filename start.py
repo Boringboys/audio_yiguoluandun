@@ -152,15 +152,15 @@ def check_and_install_require_module():
 def call_playsound(sound):
     global played_sound_count
 
+    count_lock.acquire()
+    played_sound_count += 1
+    count_lock.release()
+
     if sys_platform == "Darwin":
         if not os.path.exists(tmp_folder):
             os.mkdir(tmp_folder)
         tmp_sound_path = os.path.join(tmp_folder, "{0}{1}".format(str(uuid4()), os.path.splitext(sound)[-1]))
         shutil.copyfile(sound, tmp_sound_path)
-
-        count_lock.acquire()
-        played_sound_count += 1
-        count_lock.release()
 
         playsound(tmp_sound_path)
         os.remove(tmp_sound_path)
