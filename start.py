@@ -161,6 +161,9 @@ def call_playsound(sound):
     count_lock.release()
 
     playsound(tmp_sound_path)
+
+    # 😮‍💨，等5秒来等待文件被其他程序释放
+    time.sleep(5)
     
     os.remove(tmp_sound_path)
 
