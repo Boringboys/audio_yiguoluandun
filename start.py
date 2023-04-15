@@ -1,16 +1,20 @@
 import os
 import sys
 import time
+import shutil
 import platform
 
-'''一些参数搁下面这儿配置'''
-window_media_paths = ['C:\\', 'D:\\', 'E:\\', "F:\\"]
-# window_media_paths = ["D:\\"]
-
-thred_num = 5
+from urllib.parse import quote
+from uuid import uuid4
 
 python_version = sys.version_info
 sys_platform = platform.system()
+
+'''一些参数搁下面这儿配置'''
+window_media_paths = ['C:\\', 'D:\\', 'E:\\', "F:\\", "/"]
+# window_media_paths = ["D:\\"]
+
+thred_num = 20
 
 # 要排除的文件夹，比如微信下的一些聊天记录文件，没啥好听的，又臭又长
 # 还有回收站的文件，之类的
@@ -19,21 +23,30 @@ exclude_paths = [
     "$Recycle.Bin",
     "myblog"
 ]
+
+tmp_folder = "tmp"
+
 '''一些参数搁上面那儿配置'''
 
-if not sys_platform == 'Windows':
-    print('这个玩意的意义在Windows上！\n程序退出！')
+print(sys_platform)
+print(python_version)
+
+# sys.exit(0)
+
+if not sys_platform in ["Windows", "Darwin"]:
+    print("{0}平台还没测试过，我们下次再说！\n程序退出！".format(sys_platform))
     sys.exit(0)
 
 if python_version.major < 3 or python_version.minor < 5:
     print('暂不支持python<3.5的版本！\n程序退出!')
     sys.exit(0)
 
-# print(sys.executable)
-# print(sys.path)
-
 
 def try_fix_playsound_module():
+    '''
+    修复playsound库对一些特殊路径的报错
+    大部分是编码问题导致的调用系统接口时报错
+    '''
     # 把playsound库中的
     # command = ' '.join(command).encode(getfilesystemencoding())
     # 替换成
@@ -72,36 +85,87 @@ def try_fix_playsound_module():
                     with open(full_path, "r") as f:
                         _code = f.read()
 
-                    # print(_code)
-
                     for replace_str_item in replace_str_items:
                         if replace_str_item[0] in _code:
                             print("替换playsound库中的\n\t{0}\n为\n\t{1}".format(replace_str_item[0], replace_str_item[1]))
                             _code = _code.replace(replace_str_item[0], replace_str_item[1])
 
-                    # print(_code)
-
                     with open(full_path, "w") as f:
                         f.write(_code)
 
 
-if sys.executable.endswith('env\Scripts\python.exe'):
+def check_venv():
+    '''
+    判断是不是虚拟环境
+    return:
+        True or False
+    '''
+    if sys.executable.endswith("env/bin/python"):
+        return True
+    if sys.executable.endswith('env\Scripts\python.exe'):
+        return True
+    return False
 
+
+def install_module(module_name):
+    print('尝试安装模块{0}'.format(module_name))
+    cmd = '"{0}" -m pip install {1}'.format(sys.executable, module_name)
+    print('执行命令：{0}'.format(cmd))
+    ret = os.system(cmd)
+    if ret != 0:
+        print('强大的咱没能安装好依赖！肯定是你的电脑有问题，肯定不是咱不够强大？\n咱先溜了（小声逼逼：你是不是开了系统代理，害惨咱了）！')
+        sys.exit(0)
+
+
+def check_and_install_require_module():
+    '''
+    尝试导入或安装需要的库
+    '''
     try:
-        try_fix_playsound_module()
         from playsound import playsound
     except (ImportError, ModuleNotFoundError):
-        print('尝试安装模块playsound==1.2.2')
-        cmd = '"{0}" -m pip install playsound==1.2.2'.format(sys.executable)
-        print('执行命令：{0}'.format(cmd))
-        ret = os.system(cmd)
-        if ret != 0:
-            print('强大的咱没能安装好依赖！肯定是你的电脑有问题，肯定不是咱不够强大？\n咱先溜了（小声逼逼：你是不是开了系统代理，害惨咱了）！')
-            sys.exit(0)
-        try_fix_playsound_module()
-        from playsound import playsound
+        install_module("playsound==1.2.2")
     except Exception:
         sys.exit(1)
+
+    if sys_platform == "Darwin":
+        try:
+            from AppKit import NSSound
+        except (ImportError, ModuleNotFoundError):
+            install_module("PyObjC")
+        except Exception:
+            sys.exit(1)
+        
+        try:
+            from Foundation import NSURL
+        except (ImportError, ModuleNotFoundError):
+            install_module("PyObjC")
+        except Exception:
+            sys.exit(1)
+
+
+def call_playsound(sound):
+    if not os.path.exists(tmp_folder):
+        os.mkdir(tmp_folder)
+    tmp_sound_path = os.path.join(tmp_folder, "{0}{1}".format(str(uuid4()), os.path.splitext(sound)[-1]))
+    shutil.copyfile(sound, tmp_sound_path)
+
+    playsound(tmp_sound_path)
+
+    os.remove(tmp_sound_path)
+
+
+def del_tmp_files():
+    for root, ds, fs in os.walk(tmp_folder):
+        for f in fs:
+            tmp_sound_path = os.path.join(root, f)
+            os.remove(tmp_sound_path)
+    
+
+if check_venv():
+    check_and_install_require_module()
+    try_fix_playsound_module()
+    from playsound import playsound
     try:
         import threading
         count = 0
@@ -141,12 +205,17 @@ if sys.executable.endswith('env\Scripts\python.exe'):
                             # print(file)
                             play_count += 1
                             print('已遍历文件：{0}，已发现目标文件{1}'.format(count, play_count))
+
                             print(full_path)
-                            _t = threading.Thread(target=playsound, args=(full_path,))
+                            _t = threading.Thread(target=call_playsound, args=(full_path,))
                             _t.daemon = True
-                            _t.start()
-                            # _t.join()
+                            _t.start()                            
                             time.sleep(0.1)
+
+        for t in threading.enumerate():
+            if t is not threading.current_thread():
+                t.join()
+
     except KeyboardInterrupt as e:
         print("ctrl c 手动退出！")
         sys.exit(0)
@@ -154,13 +223,19 @@ if sys.executable.endswith('env\Scripts\python.exe'):
         print(e)
         print('哭了!')
         sys.exit(1)
+    finally:
+        del_tmp_files()
 else:
     _venv = None
-    if os.path.exists('.env/Scripts/activate'):
+    _venv_activate_path = "Scripts/activate"
+    if sys_platform == "Darwin":
+        _venv_activate_path = "bin/activate"
+    print(_venv_activate_path)
+    if os.path.exists(".env/" + _venv_activate_path):
         _venv = '.env'
-    elif os.path.exists('.venv/Scripts/activate'):
+    elif os.path.exists(".venv/" + _venv_activate_path):
         _venv = '.venv'
-    elif os.path.exists('.autovenv/Scripts/activate'):
+    elif os.path.exists(".autovenv/" + _venv_activate_path):
         _venv = '.autovenv'
     if not _venv:
         _venv = '.autovenv'
@@ -172,7 +247,11 @@ else:
             print('强大的咱没能创建好虚拟环境！你能帮帮咱么？\n程序退出！')
             sys.exit(0)
 
-    cmd = '{0}\Scripts\python.exe start.py'.format(_venv)
+    if sys_platform == "Windows":
+        cmd = '{0}\Scripts\python.exe start.py'.format(_venv)
+    elif sys_platform == "Darwin":
+        cmd = '{0}/bin/python start.py'.format(_venv)
+
     print('执行命令：{0}'.format(cmd))
     ret = os.system(cmd)
     if ret != 0:
