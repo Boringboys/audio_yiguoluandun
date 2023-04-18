@@ -13,21 +13,19 @@ python_version = sys.version_info
 sys_platform = platform.system()
 
 '''一些参数搁下面这儿配置'''
+# 查找音频文件的路径
 find_paths = ['C:\\', 'D:\\', 'E:\\', "F:\\", "/"]
 # find_paths = ["D:\\"]
 
+# 播放音频的线程数
 thred_num = 3
 
 # 要排除的文件夹，比如微信下的一些聊天记录文件，没啥好听的，又臭又长
 # 还有回收站的文件，之类的
 exclude_paths = [
     "WeChat Files",
-    "$Recycle.Bin",
-    "myblog"
+    "$Recycle.Bin"
 ]
-
-
-
 '''一些参数搁上面那儿配置'''
 
 tmp_folder = "audio_yiguoluandun_tmp"
@@ -194,13 +192,13 @@ def find_sound_files():
                     for exclude_path in exclude_paths:
                         if exclude_path in full_path:
                             # 跳过需要排除的文件夹
-                            print(full_path)
-                            print("跳过！")
+                            # print(full_path)
+                            # print("跳过！")
                             skip_flag = True
                             break
                     if tmp_folder in full_path:
-                        print(full_path)
-                        print("跳过！")
+                        # print(full_path)
+                        # print("跳过！")
                         skip_flag = True
                     if skip_flag:
                         continue
